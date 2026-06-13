@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>序列可视化工具</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f0f4f8;
+  --card-bg: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #4f46e5;
+  --primary-light: #eef2ff;
+  --nuc-color: #2563eb;
+  --aa-color: #7c3aed;
+  --mutation-bg: #fef9c3;
+  --mutation-border: #eab308;
+  --old-color: #ef4444;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-lg: 0 4px 14px rgba(0,0,0,0.1);
+  --font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+.app-header {
+  text-align: center;
+  padding: 18px 20px 10px;
+}
+.app-header h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.app-header .subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Mode Selection */
+.mode-select {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin: 16px auto 0;
+  max-width: 500px;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mode-card {
+  flex: 1;
+  padding: 22px 20px;
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  background: var(--card-bg);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: var(--shadow);
+}
+.mode-card .icon {
+  font-size: 2rem;
+  margin-bottom: 6px;
+  display: block;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mode-card .label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mode-card .desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-height: 22px;
+  opacity: 1;
+  overflow: hidden;
+}
+.mode-card:hover { border-color: var(--primary); transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.mode-card.active-nuc { border-color: var(--nuc-color); background: #eff6ff; }
+.mode-card.active-aa  { border-color: var(--aa-color); background: #faf5ff; }
+
+/* Shrunk mode selector after selection */
+.mode-select.shrunk {
+  max-width: 340px;
+  gap: 6px;
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+.mode-select.shrunk .mode-card {
+  padding: 5px 12px;
+  box-shadow: none;
+}
+.mode-select.shrunk .mode-card .icon {
+  font-size: 0.9rem;
+  margin-bottom: 0;
+  margin-right: 2px;
+  display: inline;
+}
+.mode-select.shrunk .mode-card .label {
+  font-size: 0.78rem;
+  display: inline;
+}
+.mode-select.shrunk .mode-card .desc {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+}
+.mode-select.shrunk .mode-card:hover { transform: none; }
+
+/* Main Container */
+.main-container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 16px 40px;
+}
+
+#contentArea {
+  /* hidden initially, shown via JS with card animations */
+}
+
+/* Card */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 14px;
+  overflow: visible;
+  opacity: 0;
+  transform: translateY(24px);
+}
+.card.fly-in {
+  animation: cardIn 0.48s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.card.fly-out {
+  animation: cardOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes cardOut {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-16px); }
+}
+.card-header {
+  border-radius: var(--radius) var(--radius) 0 0;
+  overflow: hidden;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.card-body { padding: 14px 16px; }
+
+/* Input Area */
+.input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 22px 16px;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.drop-zone .drop-icon { font-size: 1.8rem; display: block; margin-bottom: 4px; }
+textarea#seqInput {
+  width: 100%;
+  min-height: 80px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s;
+}
+textarea#seqInput:focus { border-color: var(--primary); }
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+.settings-row label { color: var(--text-muted); font-size: 0.8rem; }
+.settings-row select {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.82rem;
+  outline: none;
+}
+.settings-row .clear-btn {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.settings-row .clear-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+/* Custom Select (scale dropdown) */
+.custom-select { position: relative; display: inline-block; }
+.custom-select-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text);
+  transition: border-color 0.2s;
+  white-space: nowrap;
+}
+.custom-select-btn:hover { border-color: var(--primary); }
+.custom-select-drop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 110px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  opacity: 0;
+  transform: scale(0.9) translateY(-6px);
+  pointer-events: none;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  padding: 4px 0;
+}
+.custom-select-drop.open {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: auto;
+}
+.custom-select-opt {
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.custom-select-opt:hover { background: var(--primary-light); }
+.custom-select-opt.active { color: var(--primary); font-weight: 600; background: var(--primary-light); }
+
+.seq-info {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Visualization */
+#visContainer {
+  user-select: none;
+  min-height: 40px;
+}
+.seq-row { margin-bottom: 24px; }
+.seq-row:last-child { margin-bottom: 0; }
+.ruler-pre {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 15px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  letter-spacing: 0;
+  word-spacing: 0;
+  font-kerning: none;
+  white-space: pre;
+  background: none;
+}
+.seq-pre {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 15px;
+  line-height: 2.0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  letter-spacing: 0;
+  word-spacing: 0;
+  font-kerning: none;
+  white-space: pre;
+  background: none;
+  color: var(--text);
+}
+.seq-pre .c {
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s;
+  border-radius: 2px;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: 0;
+}
+.seq-pre .c:hover { background: #e2e8f0; }
+.seq-pre .c.mut {
+  background: var(--mutation-bg);
+  outline: 1px solid var(--mutation-border);
+  outline-offset: -1px;
+  z-index: 1;
+}
+.seq-pre .c.mut:hover { background: #fef08a; }
+.seq-pre .c .old-char {
+  position: absolute;
+  bottom: -1.2em;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.55em;
+  color: var(--old-color);
+  text-decoration: line-through;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* Popup */
+.popup {
+  position: fixed;
+  z-index: 1001;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.14);
+  padding: 10px 12px;
+  min-width: 150px;
+  max-width: 200px;
+  border: 1px solid rgba(0,0,0,0.08);
+  animation: popIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.popup.closing {
+  animation: popOut 0.14s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.85) translateY(-10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes popOut {
+  to { opacity: 0; transform: scale(0.9) translateY(4px); }
+}
+.popup .popup-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+.popup .popup-info {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.popup input.popup-input {
+  width: 100%;
+  padding: 5px 6px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 4px;
+  outline: none;
+  text-align: center;
+  text-transform: uppercase;
+  background: rgba(255,255,255,0.65);
+}
+.popup input.popup-input:focus { border-color: var(--primary); }
+.popup .quick-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 6px;
+}
+.popup .quick-btns button {
+  padding: 3px 7px;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 3px;
+  background: rgba(255,255,255,0.65);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.popup .quick-btns button:hover {
+  background: rgba(255,255,255,0.85);
+  border-color: var(--primary);
+  transform: scale(1.18);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.popup .popup-error {
+  font-size: 0.65rem;
+  color: var(--danger);
+  margin-top: 3px;
+  display: none;
+}
+
+/* Mutation List */
+#mutationList {
+  min-height: 36px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.mutation-tag {
+  display: inline-block;
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mutation-tag:hover { background: #fee2e2; border-color: #fca5a5; }
+.mutation-tag.removing {
+  opacity: 0;
+  transform: scale(0.7);
+  pointer-events: none;
+}
+.mutation-tag .arrow { color: var(--text-muted); margin: 0 2px; }
+.no-mutations {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Export */
+.export-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.export-options label { font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.export-options input[type="checkbox"] { accent-color: var(--primary); }
+.export-options input[type="color"] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
+}
+.export-options input[type="color"]:hover {
+  transform: scale(1.12);
+  box-shadow: var(--shadow);
+}
+.export-options select {
+  display: none;
+}
+.export-display {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  word-break: break-all;
+  min-height: 50px;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.copy-btn {
+  padding: 6px 16px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: opacity 0.15s;
+  margin-top: 8px;
+}
+.copy-btn:hover { opacity: 0.9; }
+.copy-btn.copied { background: var(--success); }
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 30px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Hidden helper */
+.hidden-helper {
+  position: absolute;
+  visibility: hidden;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 15px;
+  white-space: nowrap;
+  pointer-events: none;
+  letter-spacing: 0;
+  word-spacing: 0;
+}
+
+@media (max-width: 600px) {
+  .mode-select { flex-direction: column; }
+  .ruler-pre, .seq-pre { font-size: 13px; }
+  .seq-pre .c .old-char { bottom: -0.9em; font-size: 0.5em; }
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>序列可视化工具</h1>
+  <p class="subtitle">可视化查看 · 点击编辑 · 导出突变序列</p>
+</header>
+
+<div class="main-container" id="mainContainer">
+
+  <!-- Mode Selection -->
+  <div class="mode-select" id="modeSelect">
+    <div class="mode-card" data-mode="nucleotide" onclick="selectMode('nucleotide')">
+      <div class="icon">🧬</div>
+      <div class="label">核苷酸序列</div>
+      <div class="desc">DNA / RNA · A T C G</div>
+    </div>
+    <div class="mode-card" data-mode="amino" onclick="selectMode('amino')">
+      <div class="icon">🟣</div>
+      <div class="label">氨基酸序列</div>
+      <div class="desc">Protein · 20种氨基酸</div>
+    </div>
+  </div>
+
+  <!-- Content Area (shown after mode selection) -->
+  <div id="contentArea" style="display:none;">
+
+    <!-- Input Card -->
+    <div class="card">
+      <div class="card-header">
+        <span>📥 输入序列</span>
+        <span class="seq-info" id="seqInfo"></span>
+      </div>
+      <div class="card-body">
+        <div class="input-area">
+          <div class="drop-zone" id="dropZone">
+            <span class="drop-icon">📁</span>
+            拖拽 .fasta / .fa / .seq / .txt 文件到此处，或点击选择文件
+            <input type="file" id="fileInput" accept=".fasta,.fa,.seq,.txt,.fas" style="display:none;">
+          </div>
+          <textarea id="seqInput" placeholder="或直接粘贴序列文本..."></textarea>
+          <div class="settings-row">
+            <label>标尺刻度间隔：</label>
+            <div class="custom-select" id="scaleSelectWrap">
+              <button class="custom-select-btn" id="scaleBtn" onclick="toggleScaleDropdown()">每 10 位 ▾</button>
+            </div>
+            <button class="clear-btn" onclick="clearAll()">清除全部</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visualization Card -->
+    <div class="card">
+      <div class="card-header">
+        <span id="visTitle">🔍 序列可视化</span>
+        <span class="seq-info" id="seqStats"></span>
+      </div>
+      <div class="card-body" id="visCardBody">
+        <div id="visContainer">
+          <div class="empty-state">请输入序列以开始可视化</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mutation List Card -->
+    <div class="card">
+      <div class="card-header">📝 突变列表</div>
+      <div class="card-body" style="background:#f9fafb;">
+        <div id="mutationList">
+          <span class="no-mutations">暂无突变 — 点击序列上的位点进行替换</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Card -->
+    <div class="card">
+      <div class="card-header">📤 导出序列</div>
+      <div class="card-body">
+        <div class="export-options">
+          <label><input type="checkbox" id="exportBold" onchange="renderExport()"> 加粗突变位点</label>
+          <label><input type="checkbox" id="exportColor" onchange="renderExport()"> 着色突变位点</label>
+          <input type="color" id="mutColor" value="#dc2626" onchange="renderExport()" title="选择突变颜色">
+        </div>
+        <div class="export-display" id="exportDisplay">请输入序列以生成导出内容</div>
+        <button class="copy-btn" id="copyBtn" onclick="copyExport()">📋 复制到剪贴板</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="hidden-helper" id="charMeasurer">A</div>
+<div id="popupRoot"></div>
+<div id="dropdownPortal"></div>
+
+<script>
+const state = {
+  mode: null,          // 'nucleotide' | 'amino'
+  rawSequence: '',     // cleaned uppercase sequence string
+  chars: [],           // array of characters (current, after mutations)
+  originalChars: [],   // snapshot of original input before any mutation
+  mutations: new Map(), // position (1-indexed) -> { from: originalChar, to: currentChar }
+  scale: 10,           // ruler interval
+};
+
+const VALID = {
+  nucleotide: new Set('ATCGURYKMSWBDHVNatcgurykmsWbdhv'),
+  amino: new Set('ACDEFGHIKLMNPQRSTVWYX*acdefghiklmnpqrstvwyx*'),
+};
+
+const NUC_QUICK = ['A','T','C','G'];
+const AA_QUICK = 'ACDEFGHIKLMNPQRSTVWYX*'.split('');
+
+// ── Initialize ──
+function init() {
+  document.getElementById('dropZone').addEventListener('click', () => {
+    document.getElementById('fileInput').click();
+  });
+  document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+  document.getElementById('seqInput').addEventListener('input', debounce(handleTextInput, 200));
+  document.getElementById('dropZone').addEventListener('dragover', e => {
+    e.preventDefault();
+    e.target.classList.add('dragover');
+  });
+  document.getElementById('dropZone').addEventListener('dragleave', e => {
+    e.target.classList.remove('dragover');
+  });
+  document.getElementById('dropZone').addEventListener('drop', e => {
+    e.preventDefault();
+    e.target.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) processFile(files[0]);
+  });
+
+  window.addEventListener('resize', debounce(renderVisualization, 150));
+}
+
+function selectMode(mode) {
+  var prevMode = state.mode;
+  state.mode = mode;
+  state.rawSequence = '';
+  state.chars = [];
+  state.originalChars = [];
+  state.mutations.clear();
+
+  var modeSelect = document.getElementById('modeSelect');
+
+  // Update active card highlight
+  document.querySelectorAll('.mode-card').forEach(function(c) {
+    c.classList.remove('active-nuc', 'active-aa');
+  });
+  var activeCard = document.querySelector('[data-mode="' + mode + '"]');
+  if (mode === 'nucleotide') activeCard.classList.add('active-nuc');
+  else activeCard.classList.add('active-aa');
+
+  // Shrink mode cards
+  modeSelect.classList.add('shrunk');
+
+  var content = document.getElementById('contentArea');
+  var cards = content.querySelectorAll('.card');
+
+  function flyInCards() {
+    content.style.display = 'block';
+    document.getElementById('visTitle').textContent =
+      mode === 'nucleotide' ? '🧬 核苷酸序列可视化' : '🟣 氨基酸序列可视化';
+    document.getElementById('seqInput').value = '';
+
+    for (var i = 0; i < cards.length; i++) {
+      cards[i].classList.remove('fly-in', 'fly-out');
+      void cards[i].offsetWidth;
+      cards[i].style.animationDelay = (i * 0.07) + 's';
+      cards[i].classList.add('fly-in');
+    }
+    updateAll();
+  }
+
+  if (prevMode && content.style.display === 'block') {
+    // Switching modes: fly out first, then fly in
+    for (var i2 = 0; i2 < cards.length; i2++) {
+      cards[i2].classList.remove('fly-in');
+      void cards[i2].offsetWidth;
+      cards[i2].classList.add('fly-out');
+    }
+    setTimeout(flyInCards, 260);
+  } else {
+    // First time: just fly in after mode card animation
+    setTimeout(flyInCards, 380);
+  }
+}
+
+// ── Custom Scale Dropdown ──
+function toggleScaleDropdown() {
+  // If already open, close it
+  var existing = document.getElementById('scaleDropdown');
+  if (existing) { closeScaleDropdown(); return; }
+
+  var btn = document.getElementById('scaleBtn');
+  var rect = btn.getBoundingClientRect();
+
+  var dd = document.createElement('div');
+  dd.className = 'custom-select-drop open';
+  dd.id = 'scaleDropdown';
+  dd.style.position = 'fixed';
+  dd.style.top = (rect.bottom + 4) + 'px';
+  dd.style.left = rect.left + 'px';
+
+  var opts = [
+    { val: 5, label: '每 5 位' },
+    { val: 10, label: '每 10 位' }
+  ];
+  for (var i = 0; i < opts.length; i++) {
+    var o = opts[i];
+    var active = o.val === state.scale ? ' active' : '';
+    dd.innerHTML += '<div class="custom-select-opt' + active + '" data-scale="' + o.val + '" onclick="selectScale(' + o.val + ')">' + o.label + '</div>';
+  }
+
+  document.getElementById('dropdownPortal').appendChild(dd);
+
+  // Defer listener to avoid immediate close
+  setTimeout(function() {
+    document.addEventListener('click', scaleClickHandler);
+  }, 0);
+}
+
+function scaleClickHandler(e) {
+  if (!e.target.closest('#scaleDropdown') && !e.target.closest('#scaleBtn')) {
+    closeScaleDropdown();
+  }
+}
+
+function closeScaleDropdown() {
+  var dd = document.getElementById('scaleDropdown');
+  if (dd) dd.remove();
+  document.getElementById('dropdownPortal').innerHTML = '';
+  document.removeEventListener('click', scaleClickHandler);
+}
+
+function selectScale(val) {
+  state.scale = val;
+  document.getElementById('scaleBtn').textContent = '每 ' + val + ' 位 ▾';
+  closeScaleDropdown();
+  renderVisualization();
+}
+
+// ── File / Text Input ──
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) processFile(file);
+}
+
+function processFile(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text = e.target.result;
+    document.getElementById('seqInput').value = text;
+    setSequence(text);
+  };
+  reader.readAsText(file);
+}
+
+function handleTextInput() {
+  const text = document.getElementById('seqInput').value;
+  setSequence(text);
+}
+
+function setSequence(text) {
+  if (!state.mode) return;
+  const cleaned = cleanSequence(text);
+  state.originalChars = cleaned.split('');
+  state.chars = [...state.originalChars];
+  state.rawSequence = cleaned;
+  state.mutations.clear();
+  updateAll();
+}
+
+function cleanSequence(text) {
+  // Parse FASTA: remove header lines, whitespace, digits
+  let lines = text.split(/\r?\n/);
+  let seqLines = lines.filter(l => !l.startsWith('>') && l.trim() !== '');
+  let seq = seqLines.join('');
+  // Remove all non-letter characters except *
+  seq = seq.replace(/[^A-Za-z*]/g, '');
+  return seq.toUpperCase();
+}
+
+// ── Render All ──
+function updateAll() {
+  document.getElementById('seqInfo').textContent =
+    state.chars.length ? `共 ${state.chars.length} 位` : '';
+  document.getElementById('seqStats').textContent =
+    state.chars.length ? `长度: ${state.chars.length}` : '';
+  renderVisualization();
+  renderMutationList();
+  renderExport();
+}
+
+function clearAll() {
+  state.rawSequence = '';
+  state.chars = [];
+  state.originalChars = [];
+  state.mutations.clear();
+  document.getElementById('seqInput').value = '';
+  closePopup();
+  updateAll();
+}
+
+// ── Visualization ──
+function renderVisualization() {
+  const container = document.getElementById('visContainer');
+  if (state.chars.length === 0) {
+    container.innerHTML = '<div class="empty-state">请输入序列以开始可视化</div>';
+    return;
+  }
+
+  const charWidth = getCharWidth();
+  const parent = container.parentElement;
+  const availableWidth = parent.clientWidth - 32;
+  if (charWidth <= 0 || availableWidth <= 0) return;
+
+  const charsPerLine = Math.max(state.scale, Math.floor(availableWidth / charWidth));
+  const blocksPerLine = Math.floor(charsPerLine / state.scale);
+  const actualCharsPerLine = blocksPerLine * state.scale;
+  const total = state.chars.length;
+  const scale = state.scale;
+
+  function buildRuler(startPos, count) {
+    let s = '';
+    let i = 0;
+    while (i < count) {
+      const absPos = startPos + i;
+      if (absPos > total) break;
+      if (absPos % scale === 1) {
+        const label = String(absPos);
+        s += label;
+        i += label.length;
+      } else {
+        s += ' ';
+        i++;
+      }
+    }
+    while (i < count) { s += ' '; i++; }
+    return s;
+  }
+
+  let html = '';
+  let pos = 0;
+
+  while (pos < total) {
+    const rowChars = state.chars.slice(pos, pos + actualCharsPerLine);
+    if (rowChars.length === 0) break;
+    const startPos = pos + 1;
+
+    const rulerText = buildRuler(startPos, actualCharsPerLine);
+
+    let seqHtml = '';
+    for (let j = 0; j < rowChars.length; j++) {
+      const globalPos = pos + j + 1;
+      const ch = rowChars[j];
+      const mut = state.mutations.get(globalPos);
+      if (mut) {
+        seqHtml += '<span class="c mut" data-pos="' + globalPos + '" data-current="' + mut.to + '" onclick="openPopup(event,' + globalPos + ')">' + mut.to + '<span class="old-char">' + mut.from + '</span></span>';
+      } else {
+        seqHtml += '<span class="c" data-pos="' + globalPos + '" data-current="' + ch + '" onclick="openPopup(event,' + globalPos + ')">' + ch + '</span>';
+      }
+    }
+
+    html += '<div class="seq-row">'
+      + '<pre class="ruler-pre">' + rulerText + '</pre>'
+      + '<pre class="seq-pre">' + seqHtml + '</pre>'
+      + '</div>';
+
+    pos += actualCharsPerLine;
+  }
+
+  container.innerHTML = html;
+}
+
+function getCharWidth() {
+  const m = document.getElementById('charMeasurer');
+  return m.getBoundingClientRect().width;
+}
+
+// ── Popup ──
+function openPopup(event, position) {
+  event.stopPropagation();
+  const root = document.getElementById('popupRoot');
+
+  // If clicking same position with popup open, do nothing
+  const existing = root.querySelector('.popup');
+  if (existing && existing.dataset.popupPos === String(position)) return;
+
+  // Close any existing popup (with animation)
+  closePopup(true);
+
+  const charEl = event.target.closest('.c');
+  if (!charEl) return;
+  const currentChar = charEl.dataset.current;
+  const rect = charEl.getBoundingClientRect();
+
+  const popup = document.createElement('div');
+  popup.className = 'popup';
+  popup.dataset.popupPos = position;
+  popup.onclick = e => e.stopPropagation();
+
+  const quickBtns = state.mode === 'nucleotide' ? NUC_QUICK : AA_QUICK;
+  const modeLabel = state.mode === 'nucleotide' ? '核苷酸' : '氨基酸';
+  const mut = state.mutations.get(position);
+  const originInfo = mut
+    ? '<div class="popup-info">原始: <strong style="color:var(--old-color);text-decoration:line-through">' + mut.from + '</strong> → 当前: <strong>' + currentChar + '</strong></div>'
+    : '<div class="popup-info">当前: <strong>' + currentChar + '</strong></div>';
+  const quickBtnsHtml = quickBtns.map(function(c) {
+    var disabled = c.toUpperCase() === currentChar.toUpperCase() ? ' disabled' : '';
+    return '<button onclick="quickReplace(' + position + ',\'' + c + '\')"' + disabled + '>' + c + '</button>';
+  }).join('');
+
+  popup.innerHTML =
+    '<div class="popup-title">替换第 ' + position + ' 位' + modeLabel + '</div>' +
+    originInfo +
+    '<input class="popup-input" id="popupInput" maxlength="1" placeholder="输入 → Enter 确认" autofocus>' +
+    '<div class="quick-btns">' + quickBtnsHtml + '</div>' +
+    '<div class="popup-error" id="popupError">无效的' + modeLabel + '字符</div>';
+
+  root.appendChild(popup);
+
+  // Position
+  var top = rect.bottom + 6;
+  var left = rect.left;
+  if (left + 210 > window.innerWidth - 10) left = window.innerWidth - 220;
+  if (left < 10) left = 10;
+  if (top + 220 > window.innerHeight) top = Math.max(10, rect.top - 220);
+  popup.style.top = top + 'px';
+  popup.style.left = left + 'px';
+
+  var inp = document.getElementById('popupInput');
+  inp.focus();
+  inp.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); confirmReplace(position); }
+    if (e.key === 'Escape') { e.preventDefault(); closePopup(); }
+  });
+
+  // Document-level click to close (deferred to avoid current click)
+  setTimeout(function() {
+    document.addEventListener('click', docClickHandler);
+  }, 0);
+}
+
+function docClickHandler(e) {
+  if (!e.target.closest('.popup') && !e.target.closest('.c')) {
+    closePopup();
+  }
+}
+
+function closePopup(instant) {
+  var popup = document.querySelector('.popup');
+  document.removeEventListener('click', docClickHandler);
+  if (!popup) { document.getElementById('popupRoot').innerHTML = ''; return; }
+
+  if (instant) {
+    document.getElementById('popupRoot').innerHTML = '';
+    return;
+  }
+
+  popup.classList.add('closing');
+  popup.addEventListener('animationend', function() {
+    document.getElementById('popupRoot').innerHTML = '';
+  }, { once: true });
+}
+
+function quickReplace(position, char) {
+  document.getElementById('popupInput').value = char.toUpperCase();
+  confirmReplace(position);
+}
+
+function confirmReplace(position) {
+  const inp = document.getElementById('popupInput');
+  const errEl = document.getElementById('popupError');
+  const raw = inp.value.trim().toUpperCase();
+  if (raw.length !== 1) {
+    if (errEl) errEl.style.display = 'block';
+    return;
+  }
+  const validSet = state.mode === 'nucleotide' ? new Set('ATCGUatcgu') : VALID.amino;
+  if (!validSet.has(raw)) {
+    if (errEl) errEl.style.display = 'block';
+    return;
+  }
+
+  const originalChar = state.originalChars[position - 1];
+  if (raw === state.chars[position - 1]) {
+    closePopup();
+    return;
+  }
+
+  if (raw === originalChar) {
+    // Reverted to original — remove mutation
+    state.chars[position - 1] = originalChar;
+    state.mutations.delete(position);
+  } else {
+    state.mutations.set(position, { from: originalChar, to: raw });
+    state.chars[position - 1] = raw;
+  }
+  state.rawSequence = state.chars.join('');
+  closePopup();
+  updateAll();
+}
+
+// ── Mutation List ──
+function renderMutationList() {
+  const container = document.getElementById('mutationList');
+  if (state.mutations.size === 0) {
+    container.innerHTML = '<span class="no-mutations">暂无突变 — 点击序列上的位点进行替换</span>';
+    return;
+  }
+  var html = '';
+  var sorted = Array.from(state.mutations.entries()).sort(function(a, b) { return a[0] - b[0]; });
+  for (var i = 0; i < sorted.length; i++) {
+    var pos = sorted[i][0];
+    var from = sorted[i][1].from;
+    var to = sorted[i][1].to;
+    html += '<span class="mutation-tag" data-pos="' + pos + '" title="点击撤销此突变" onclick="revertMutation(' + pos + ')">' + from + '<span class="arrow">→</span>' + to + ' (' + pos + ')</span>';
+  }
+  container.innerHTML = html;
+}
+
+function revertMutation(position) {
+  var tag = document.querySelector('.mutation-tag[data-pos="' + position + '"]');
+  if (!tag) return;
+
+  tag.classList.add('removing');
+  tag.addEventListener('transitionend', function handler() {
+    tag.removeEventListener('transitionend', handler);
+    var mut = state.mutations.get(position);
+    if (mut) {
+      state.chars[position - 1] = mut.from;
+      state.rawSequence = state.chars.join('');
+      state.mutations.delete(position);
+      updateAll();
+    }
+  });
+}
+
+// ── Export ──
+function renderExport() {
+  const display = document.getElementById('exportDisplay');
+  if (state.chars.length === 0) {
+    display.innerHTML = '请输入序列以生成导出内容';
+    return;
+  }
+
+  const bold = document.getElementById('exportBold').checked;
+  const colored = document.getElementById('exportColor').checked;
+  const color = document.getElementById('mutColor').value;
+
+  if (!bold && !colored) {
+    display.textContent = state.rawSequence;
+    display.style.whiteSpace = 'pre-wrap';
+  } else {
+    let html = '';
+    for (let i = 0; i < state.chars.length; i++) {
+      const pos = i + 1;
+      const ch = state.chars[i];
+      const mut = state.mutations.get(pos);
+      if (mut) {
+        let style = '';
+        if (colored) style += 'color:' + color + ';';
+        if (bold) style += 'font-weight:bold;';
+        html += '<span style="' + style + '">' + ch + '</span>';
+      } else {
+        html += ch;
+      }
+    }
+    display.innerHTML = html;
+    display.style.whiteSpace = 'pre-wrap';
+  }
+}
+
+function copyExport() {
+  const bold = document.getElementById('exportBold').checked;
+  const colored = document.getElementById('exportColor').checked;
+  const display = document.getElementById('exportDisplay');
+  const btn = document.getElementById('copyBtn');
+
+  if (!bold && !colored) {
+    navigator.clipboard.writeText(display.textContent).then(() => {
+      btn.textContent = '✅ 已复制';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = '📋 复制到剪贴板'; btn.classList.remove('copied'); }, 1500);
+    });
+  } else {
+    var plainText = display.textContent || display.innerText;
+    var htmlContent = '<html><body style="font-family:Consolas,monospace;font-size:12pt;white-space:pre-wrap">' + display.innerHTML + '</body></html>';
+    var blob = new Blob([htmlContent], { type: 'text/html' });
+    var clipItem = new ClipboardItem({
+      'text/html': blob,
+      'text/plain': new Blob([plainText], { type: 'text/plain' })
+    });
+
+    navigator.clipboard.write([clipItem]).then(() => {
+      btn.textContent = '✅ 已复制（含格式）';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = '📋 复制到剪贴板'; btn.classList.remove('copied'); }, 1500);
+    }).catch(() => {
+      navigator.clipboard.writeText(plainText).then(() => {
+        btn.textContent = '✅ 已复制（纯文本）';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = '📋 复制到剪贴板'; btn.classList.remove('copied'); }, 1500);
+      });
+    });
+  }
+}
+
+// ── Utility ──
+function debounce(fn, delay) {
+  let timer;
+  return function(...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
+// ── Boot ──
+init();
+</script>
+
+</body>
+</html>
